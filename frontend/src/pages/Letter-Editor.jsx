@@ -7,10 +7,11 @@ import RichTextEditor from "../components/RichEditor";
 import { Button } from "../components/ui/Button";
 import { MdOutlineChangeCircle } from "react-icons/md";
 import { gapi } from "gapi-script";
+import UploadToDriveButton from "../components/UploadToDriveButton";
 
-const CLIENT_ID =
-  "135854560886-m6igcgl2m8pu37vovkbv56t2vuau7di8.apps.googleusercontent.com";
-const API_KEY = "AIzaSyCZA0HqqiDPYC6l4CwQNHVBP6iLOWZRzlw";
+// 🔥 Google API Config
+const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
 export default function LetterEditor() {
@@ -24,92 +25,60 @@ export default function LetterEditor() {
   const [isSaving, setIsSaving] = useState(false);
   const [viewingDraft, setViewingDraft] = useState(null);
 
+  // 🔹 Load drafts & initialize Google API on mount
   useEffect(() => {
     dispatch(loadDrafts());
-    gapi.load("client:auth2", initClient);
+
+    gapi.load("client:auth2", () => {
+      gapi.client
+        .init({
+          apiKey: API_KEY,
+          clientId: CLIENT_ID,
+          discoveryDocs: [
+            "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
+          ],
+          scope: SCOPES,
+        })
+        .catch((error) =>
+          console.error("Google API Initialization Error:", error)
+        );
+    });
   }, [dispatch]);
 
-  const initClient = () => {
-    gapi.client.init({
-      apiKey: API_KEY,
-      clientId: CLIENT_ID,
-      scope: SCOPES,
-      discoveryDocs: [
-        "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
-      ],
-    });
-  };
-
+  // 🔹 Save Draft Handler
   const handleSaveDraft = () => {
     const textContent = content.replace(/<[^>]+>/g, "").trim();
     if (!textContent) {
-      alert("Cannot save an empty letter!");
+      alert("❌ Cannot save an empty letter!");
       return;
     }
 
     setIsSaving(true);
 
-    if (selectedDraftId) {
-      dispatch(
-        saveDraft({ id: selectedDraftId, title, content, isUpdate: true })
-      );
-      alert("Draft updated!");
-    } else {
-      dispatch(saveDraft({ title, content }));
-      alert("Draft saved!");
-    }
+    const draftData = {
+      id: selectedDraftId,
+      title,
+      content,
+      isUpdate: !!selectedDraftId,
+    };
+    dispatch(saveDraft(draftData));
 
-    setIsSaving(false);
-    setSelectedDraftId(null);
-    setViewingDraft(null);
-    setTimeout(() => {
-      setContent("right here");
-      setTitle("Untitled Letter");
-    }, 0);
+    alert(selectedDraftId ? "✅ Draft updated!" : "✅ Draft saved!");
+    resetEditor();
   };
 
-  const uploadToDrive = async () => {
-    if (!gapi.auth2.getAuthInstance().isSignedIn.get()) {
-      alert("Please sign in to Google first.");
-      return;
-    }
-
-    const fileMetadata = {
-      name: `${title}.docx`,
-      mimeType: "application/vnd.google-apps.document",
-    };
-
-    const boundary = "-------314159265358979323846";
-    const delimiter = `\r\n--${boundary}\r\n`;
-    const closeDelimiter = `\r\n--${boundary}--`;
-
-    const contentBody = `
-      ${delimiter}
-      Content-Type: application/json\r\n\r\n
-      ${JSON.stringify(fileMetadata)}
-      ${delimiter}
-      Content-Type: text/html\r\n\r\n
-      ${content}
-      ${closeDelimiter}
-    `;
-
-    const request = gapi.client.request({
-      path: "/upload/drive/v3/files",
-      method: "POST",
-      params: { uploadType: "multipart" },
-      headers: {
-        "Content-Type": `multipart/related; boundary=${boundary}`,
-      },
-      body: contentBody,
-    });
-
-    request.execute((file) => {
-      alert(`Letter uploaded to Google Drive: ${file.name}`);
-    });
+  // 🔹 Reset Editor
+  const resetEditor = () => {
+    setContent("");
+    setTitle("Untitled Letter");
+    setSelectedDraftId(null);
+    setViewingDraft(null);
+    setIsSaving(false);
   };
 
   return (
     <div className="space-y-6 p-6 max-w-3xl mx-auto bg-white shadow-md rounded-lg">
+      {/* 🔹 Title Input */}
       <input
         type="text"
         value={title}
@@ -118,10 +87,12 @@ export default function LetterEditor() {
         placeholder="Letter Title"
       />
 
+      {/* 🔹 Rich Text Editor */}
       <div className="border rounded-md">
         <RichTextEditor value={content} onChange={setContent} />
       </div>
 
+      {/* 🔹 Admin Controls */}
       {userRole === "admin" && (
         <div className="flex gap-2">
           <Button onClick={handleSaveDraft} disabled={isSaving}>
@@ -133,13 +104,11 @@ export default function LetterEditor() {
             {selectedDraftId ? "Update Draft" : "Save Draft"}
           </Button>
 
-          <Button onClick={uploadToDrive} variant="primary">
-            <Upload className="h-4 w-4" />
-            Upload to Drive
-          </Button>
+          <UploadToDriveButton content={content} title={title} />
         </div>
       )}
 
+      {/* 🔹 Role Toggle */}
       <div className="mt-4 flex items-center justify-between">
         <strong>Role: {userRole.toUpperCase()}</strong>
         <button
@@ -156,6 +125,7 @@ export default function LetterEditor() {
         </button>
       </div>
 
+      {/* 🔹 Draft Preview Modal */}
       {viewingDraft && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full">
@@ -173,6 +143,7 @@ export default function LetterEditor() {
         </div>
       )}
 
+      {/* 🔹 Drafts List */}
       <div className="mt-4">
         <h3 className="font-bold text-lg">My Drafts</h3>
         {drafts.length === 0 ? (
